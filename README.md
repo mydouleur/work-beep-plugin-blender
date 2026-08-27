@@ -16,5 +16,5 @@ pnpm deploy         # dist → ../host/plugins/blender/（三仓并列时）
 python scripts/fetch_blender.py --mirror aliyun   # 首次：下载 Blender 绿色版
 ```
 
-免构主项目调试：从 work-beep 的 Releases 下载主程序包（或跑 sdk 仓库 example 里的下载脚本），
+免构主项目调试：`node scripts/fetch-host.mjs`（从 work-beep 的 Release 拉主程序包到 `host-app/`），
 把 `dist/` 放进其 `plugins/blender/` 后启动 exe。
