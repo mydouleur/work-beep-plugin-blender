@@ -1,0 +1,18 @@
+{
+  "name": "@beep/plugin-blender",
+  "private": true,
+  "version": "0.1.0",
+  "description": "blenderBeeper 的 Blender 插件：绿色版拉起、窗口嵌入、bpy 桥命令工具",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "deploy": "node scripts/deploy.mjs",
+    "dev": "vite build --watch"
+  },
+  "devDependencies": {
+    "@beep/plugin-kit": "file:../sdk/kit",
+    "@beep/sdk": "file:../sdk",
+    "vite": "^8.1.4",
+    "vue": "^3.5.13"
+  }
+}
