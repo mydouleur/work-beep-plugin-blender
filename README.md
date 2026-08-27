@@ -14,12 +14,10 @@ blenderBeeper 的 Blender 插件（@beep/sdk 契约的参考实现）：
 ```bash
 pnpm install        # 从 GitHub 拉 @beep/sdk 并自动构建（allowBuilds 已配）
 pnpm build          # beep-plugin build（sdk 自带打包命令）→ dist/
-node scripts/fetch-host.mjs                     # 首次：拉主程序包到 host-app/
 python scripts/fetch_blender.py --mirror aliyun # 首次：下载 Blender 绿色版到 runtime/
+pnpm start          # 一键调试：自动拉主程序 Release → 组装 host-app/plugins/blender/ → 启动 exe
 ```
 
-把 `dist/` 拷进 `host-app/plugins/blender/`（并将 `runtime/` 联接或复制到其 `assets/runtime`），
-双击 `host-app/beep-host.exe` 即可调试。
-
-维护者本地有三仓并列时，`pnpm deploy` 可一步把 dist + runtime junction 部署到
-`../work-beep/plugins/blender/`。
+`pnpm start` 首次会从 work-beep 的 GitHub Release 下载主程序到 `host-app/`（免构主项目），
+之后重复执行只做增量组装并启动。维护者本地有三仓并列时，也可 `pnpm deploy` 部署到
+`../work-beep/plugins/blender/` 配合 Host 源码开发。

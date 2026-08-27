@@ -18,8 +18,9 @@ src/tools.ts      # 插件工具声明：工具名 ↔ 桥命令映射的单一�
 src/state.ts      # 运行期状态单例（pid / port）
 assets/bridge/    # Blender 内 IPC 桥（Python 包，TCP JSON-lines，@command 注册表）
 scripts/fetch_blender.py  # 下载 Blender 绿色版到 runtime/（标准库，断点续传 + SHA256）
-scripts/deploy.mjs        # dist → ../work-beep/plugins/blender/ + runtime junction
-scripts/fetch-host.mjs    # 从 work-beep Release 拉主程序包到 host-app/（免构 Host 调试）
+scripts/start.mjs         # 一键调试：拉主程序 Release → 组装 host-app/ → 启动 exe
+scripts/deploy.mjs        # dist → ../work-beep/plugins/blender/ + runtime junction（维护者本地）
+scripts/fetch-host.mjs    # 从 work-beep Release 拉主程序包到 host-app/（start.mjs 自动调用）
 runtime/          # Blender 绿色版（不进版本库，见下）
 ```
 
@@ -33,7 +34,7 @@ runtime/          # Blender 绿色版（不进版本库，见下）
 pnpm install
 pnpm build                            # beep-plugin build（@beep/sdk 自带打包命令）→ dist/
 python scripts/fetch_blender.py --mirror aliyun   # 首次且 runtime/ 缺失时：下载 Blender 绿色版
-node scripts/fetch-host.mjs           # 免构 Host：拉主程序包到 host-app/，dist 拷进其 plugins/blender/
+pnpm start                            # 一键调试：拉主程序 Release → 组装 host-app/ → 启动 exe
 pnpm deploy                           # 维护者本地三仓并列时：dist → ../work-beep/plugins/blender/
 ```
 
