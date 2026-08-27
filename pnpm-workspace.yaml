@@ -1,1 +1,5 @@
 packages: []
+# 允许 GitHub 依赖 @beep/sdk 在安装时跑 prepare（tsc 构建出 dist/）。
+# 注意：git 依赖的键含提交哈希，升级 sdk 后需按 pnpm 报错提示同步更新本键。
+allowBuilds:
+  "@beep/sdk@https://codeload.github.com/mydouleur/work-beep-plugin-sdk/tar.gz/8d702276efa618ac8a48d32c8b88420f93587ffe": true

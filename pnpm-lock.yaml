@@ -8,15 +8,9 @@ importers:
 
   .:
     devDependencies:
-      '@beep/plugin-kit':
-        specifier: file:../sdk/kit
-        version: file:../sdk/kit(vue@3.5.41)
       '@beep/sdk':
-        specifier: file:../sdk
-        version: file:../sdk
-      vite:
-        specifier: ^8.1.4
-        version: 8.2.1
+        specifier: github:mydouleur/work-beep-plugin-sdk#main
+        version: https://codeload.github.com/mydouleur/work-beep-plugin-sdk/tar.gz/8d702276efa618ac8a48d32c8b88420f93587ffe(vue@3.5.41)
       vue:
         specifier: ^3.5.13
         version: 3.5.41
@@ -40,11 +34,10 @@ packages:
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
 
-  '@beep/plugin-kit@file:../sdk/kit':
-    resolution: {directory: ../sdk/kit, type: directory}
-
-  '@beep/sdk@file:../sdk':
-    resolution: {directory: ../sdk, type: directory}
+  '@beep/sdk@https://codeload.github.com/mydouleur/work-beep-plugin-sdk/tar.gz/8d702276efa618ac8a48d32c8b88420f93587ffe':
+    resolution: {gitHosted: true, integrity: sha512-QP+OQpRoiavET7hJtfo1ecnGP1nqp/WSOzc+1pH9AxyYH1XVF1ENQQLJZ2EHGV6gVVepCWYggD8bs3n2skNyEA==, tarball: https://codeload.github.com/mydouleur/work-beep-plugin-sdk/tar.gz/8d702276efa618ac8a48d32c8b88420f93587ffe}
+    version: 0.1.0
+    hasBin: true
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
@@ -379,7 +372,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@beep/plugin-kit@file:../sdk/kit(vue@3.5.41)':
+  '@beep/sdk@https://codeload.github.com/mydouleur/work-beep-plugin-sdk/tar.gz/8d702276efa618ac8a48d32c8b88420f93587ffe(vue@3.5.41)':
     dependencies:
       '@vitejs/plugin-vue': 6.0.8(vite@8.2.1)(vue@3.5.41)
       vite: 8.2.1
@@ -397,8 +390,6 @@ snapshots:
       - tsx
       - vue
       - yaml
-
-  '@beep/sdk@file:../sdk': {}
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
