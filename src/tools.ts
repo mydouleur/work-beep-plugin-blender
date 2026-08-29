@@ -14,4 +14,21 @@ export const tools: PluginTool[] = [
             return JSON.stringify(data);
         },
     },
+    {
+        name: "blender.mesh_stats",
+        description: "查看指定网格对象的顶点数、边数和面数",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "网格对象名称" },
+            },
+            required: ["name"],
+            additionalProperties: false,
+        },
+        async run(args, ctx) {
+            if (!state.port) throw new Error("Blender 未启动或桥未就绪");
+            const data = await ctx.call(state.port, "mesh.stats", args);
+            return JSON.stringify(data);
+        },
+    },
 ];
