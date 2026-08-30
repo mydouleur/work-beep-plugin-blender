@@ -1,5 +1,6 @@
 from typing import Any
 
+import check
 from registry import command
 
 
@@ -86,12 +87,14 @@ def add_plane(params: dict[str, Any]) -> dict[str, Any]:
 
         obj.name = requested_name
 
-    return {
+    check.mesh_alive(obj.name)
+    check.vec_close(obj.location, location, "location")
+    return check.stamp({
         "name": obj.name,
         "type": obj.type,
         "size": size,
         "location": [float(value) for value in obj.location],
-    }
+    })
 
 
 @command("object.move")
@@ -121,11 +124,11 @@ def move_object(params: dict[str, Any]) -> dict[str, Any]:
 
     obj = _get_object(object_name)
     obj.location = location
-
-    return {
+    check.vec_close(obj.location, location, "location")
+    return check.stamp({
         "name": obj.name,
         "location": [float(value) for value in obj.location],
-    }
+    })
 
 
 @command("object.delete")
@@ -150,12 +153,12 @@ def delete_object(params: dict[str, Any]) -> dict[str, Any]:
     object_type = obj.type
 
     bpy.data.objects.remove(obj, do_unlink=True)
-
-    return {
+    check.object_gone(actual_name)
+    return check.stamp({
         "deleted": True,
         "name": actual_name,
         "type": object_type,
-    }
+    })
 
 
 @command("object.add_cube")
@@ -193,12 +196,14 @@ def add_cube(params: dict[str, Any]) -> dict[str, Any]:
 
         obj.name = requested_name
 
-    return {
+    check.mesh_alive(obj.name)
+    check.vec_close(obj.location, location, "location")
+    return check.stamp({
         "name": obj.name,
         "type": obj.type,
         "size": size,
         "location": [float(value) for value in obj.location],
-    }
+    })
 
 
 @command("object.add_cylinder")
@@ -246,14 +251,16 @@ def add_cylinder(params: dict[str, Any]) -> dict[str, Any]:
 
         obj.name = requested_name
 
-    return {
+    check.mesh_alive(obj.name)
+    check.vec_close(obj.location, location, "location")
+    return check.stamp({
         "name": obj.name,
         "type": obj.type,
         "radius": radius,
         "depth": depth,
         "vertices": vertices,
         "location": [float(value) for value in obj.location],
-    }
+    })
 
 
 @command("object.add_uv_sphere")
@@ -301,14 +308,16 @@ def add_uv_sphere(params: dict[str, Any]) -> dict[str, Any]:
 
         obj.name = requested_name
 
-    return {
+    check.mesh_alive(obj.name)
+    check.vec_close(obj.location, location, "location")
+    return check.stamp({
         "name": obj.name,
         "type": obj.type,
         "radius": radius,
         "segments": segments,
         "ring_count": ring_count,
         "location": [float(value) for value in obj.location],
-    }
+    })
 
 
 @command("object.rotate")
@@ -345,14 +354,20 @@ def rotate_object(params: dict[str, Any]) -> dict[str, Any]:
         for value in rotation_degrees
     )
 
-    return {
+    check.object_exists(obj.name)
+    check.vec_close(
+        obj.rotation_euler,
+        [math.radians(v) for v in rotation_degrees],
+        "rotation",
+    )
+    return check.stamp({
         "name": obj.name,
         "rotation_degrees": list(rotation_degrees),
         "rotation_radians": [
             float(value)
             for value in obj.rotation_euler
         ],
-    }
+    })
 
 
 @command("object.scale")
@@ -387,11 +402,11 @@ def scale_object(params: dict[str, Any]) -> dict[str, Any]:
 
     obj = _get_object(object_name)
     obj.scale = scale
-
-    return {
+    check.vec_close(obj.scale, scale, "scale")
+    return check.stamp({
         "name": obj.name,
         "scale": [float(value) for value in obj.scale],
-    }
+    })
 
 
 @command("object.duplicate")
@@ -433,8 +448,9 @@ def duplicate_object(params: dict[str, Any]) -> dict[str, Any]:
 
         duplicate.name = requested_name
 
+    requested_location = None
     if "location" in params:
-        duplicate.location = _read_vector3(
+        requested_location = _read_vector3(
             params=params,
             key="location",
             default=[
@@ -442,8 +458,15 @@ def duplicate_object(params: dict[str, Any]) -> dict[str, Any]:
                 for value in source.location
             ],
         )
+        duplicate.location = requested_location
 
-    return {
+    check.object_exists(source.name)
+    check.object_exists(duplicate.name)
+    if source.name == duplicate.name:
+        check.fail("复制对象与源对象同名")
+    if requested_location is not None:
+        check.vec_close(duplicate.location, requested_location, "location")
+    return check.stamp({
         "source": source.name,
         "name": duplicate.name,
         "location": [
@@ -458,4 +481,4 @@ def duplicate_object(params: dict[str, Any]) -> dict[str, Any]:
             float(value)
             for value in duplicate.scale
         ],
-    }
+    })

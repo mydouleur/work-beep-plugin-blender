@@ -2,6 +2,7 @@ from typing import Any
 
 import bpy
 
+import check
 from registry import command
 
 
@@ -98,13 +99,15 @@ def mirror_modifier(
             modifier_name,
         )
 
-    return {
+    check.mesh_alive(obj.name)
+    check.modifier_state(obj, modifier_name, apply_modifier)
+    return check.stamp({
         "name": obj.name,
         "operation": "mirror",
         "axis": axis,
         "modifier": modifier_name,
         "applied": apply_modifier,
-    }
+    })
 
 
 @command("modifier.boolean")
@@ -186,14 +189,17 @@ def boolean_modifier(
             modifier_name,
         )
 
-    return {
+    check.mesh_alive(obj.name)
+    check.object_exists(operand.name, "MESH")
+    check.modifier_state(obj, modifier_name, apply_modifier)
+    return check.stamp({
         "name": obj.name,
         "operation": "boolean",
         "boolean_operation": operation,
         "operand": operand.name,
         "modifier": modifier_name,
         "applied": apply_modifier,
-    }
+    })
 
 
 @command("modifier.decimate")
@@ -254,11 +260,18 @@ def decimate_modifier(
             modifier_name,
         )
 
-    polygons_after = len(
-        obj.data.polygons
-    )
+    check.mesh_alive(obj.name)
+    check.modifier_state(obj, modifier_name, apply_modifier)
+    if apply_modifier:
+        polygons_after = check.faces_decreased(obj.name, polygons_before)
+    else:
+        polygons_after = check.faces_count(obj.name)
+        if polygons_after != polygons_before:
+            check.fail(
+                f'未应用的 Decimate 不应改面数（{polygons_before} → {polygons_after}）'
+            )
 
-    return {
+    return check.stamp({
         "name": obj.name,
         "operation": "decimate",
         "ratio": ratio,
@@ -266,7 +279,7 @@ def decimate_modifier(
         "polygons_after": polygons_after,
         "modifier": modifier_name,
         "applied": apply_modifier,
-    }
+    })
 
 
 @command("modifier.remesh")
@@ -336,14 +349,16 @@ def remesh_modifier(
             modifier_name,
         )
 
-    return {
+    check.mesh_alive(obj.name)
+    check.modifier_state(obj, modifier_name, apply_modifier)
+    return check.stamp({
         "name": obj.name,
         "operation": "remesh",
         "requested_voxel_size": voxel_size,
         "octree_depth": octree_depth,
         "modifier": modifier_name,
         "applied": apply_modifier,
-    }
+    })
 
 
 @command("modifier.shrinkwrap")
@@ -409,14 +424,17 @@ def shrinkwrap_modifier(
             modifier_name,
         )
 
-    return {
+    check.mesh_alive(obj.name)
+    check.object_exists(target.name, "MESH")
+    check.modifier_state(obj, modifier_name, apply_modifier)
+    return check.stamp({
         "name": obj.name,
         "operation": "shrinkwrap",
         "target": target.name,
         "offset": offset,
         "modifier": modifier_name,
         "applied": apply_modifier,
-    }
+    })
 
 
 @command("modifier.data_transfer")
@@ -495,11 +513,14 @@ def data_transfer_modifier(
             modifier_name,
         )
 
-    return {
+    check.mesh_alive(obj.name)
+    check.object_exists(source.name, "MESH")
+    check.modifier_state(obj, modifier_name, apply_modifier)
+    return check.stamp({
         "name": obj.name,
         "operation": "data_transfer",
         "source": source.name,
         "data_type": data_type,
         "modifier": modifier_name,
         "applied": apply_modifier,
-    }
+    })

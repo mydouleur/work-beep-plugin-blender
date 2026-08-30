@@ -13,6 +13,7 @@ from typing import Any
 import bpy
 from mathutils import Vector
 
+import check
 from registry import command
 
 # 相机放在物体哪一侧（Blender：前视图从 -Y 看向原点）
@@ -185,7 +186,7 @@ def render_view(params: dict[str, Any]) -> dict[str, Any]:
     if not out:
         folder = tempfile.mkdtemp(prefix="beep-view-")
         out = os.path.join(folder, f"{_safe_name(obj.name)}_{view}.png")
-    return _render_one(obj, view, out, resolution)
+    return check.stamp(_render_one(obj, view, out, resolution))
 
 
 @command("render.views")
@@ -232,7 +233,7 @@ def render_views(params: dict[str, Any]) -> dict[str, Any]:
             "多视图验收未通过："
             + ",".join(f"{x['view']}({x.get('error', '')})" for x in failed)
         )
-    return payload
+    return check.stamp(payload)
 
 
 @command("render.validate_views")
@@ -266,4 +267,4 @@ def validate_views(params: dict[str, Any]) -> dict[str, Any]:
             "视图文件验收未通过："
             + ",".join(f"{x['view']}({x.get('error', '')})" for x in failed)
         )
-    return payload
+    return check.stamp(payload)

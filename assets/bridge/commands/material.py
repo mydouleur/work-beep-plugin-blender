@@ -2,6 +2,7 @@ from typing import Any
 
 import bpy
 
+import check
 from registry import command
 
 
@@ -57,10 +58,11 @@ def create_material(params: dict[str, Any]) -> dict[str, Any]:
     material = bpy.data.materials.new(name=name)
     material.use_nodes = True
 
-    return {
+    check.material_exists(material.name)
+    return check.stamp({
         "name": material.name,
         "created": True,
-    }
+    })
 
 
 @command("material.set_base_color")
@@ -81,11 +83,15 @@ def set_base_color(params: dict[str, Any]) -> dict[str, Any]:
 
     if principled is not None:
         principled.inputs["Base Color"].default_value = color
+        check.color_close(principled.inputs["Base Color"].default_value, color)
+    else:
+        check.color_close(material.diffuse_color, color)
 
-    return {
+    check.material_exists(material.name)
+    return check.stamp({
         "name": material.name,
         "color": list(color),
-    }
+    })
 
 
 @command("material.assign")
@@ -107,8 +113,15 @@ def assign_material(params: dict[str, Any]) -> dict[str, Any]:
 
     obj.active_material = material
 
-    return {
+    check.object_exists(obj.name)
+    check.material_exists(material.name)
+    if obj.active_material is None or obj.active_material.name != material.name:
+        check.fail(f'物体 "{obj.name}" 的活动材质应为 "{material.name}"')
+    slot_names = [m.name for m in obj.data.materials if m]
+    if material.name not in slot_names:
+        check.fail(f'材质 "{material.name}" 不在物体 "{obj.name}" 的材质槽中')
+    return check.stamp({
         "object": obj.name,
         "material": material.name,
         "assigned": True,
-    }
+    })

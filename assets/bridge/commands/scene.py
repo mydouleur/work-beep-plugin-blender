@@ -1,5 +1,6 @@
 from typing import Any
 
+import check
 from registry import command
 
 
@@ -26,9 +27,10 @@ def clear_scene(params: dict[str, Any]) -> dict[str, Any]:
     for obj in objects:
         bpy.data.objects.remove(obj, do_unlink=True)
 
-    return {
+    check.scene_empty()
+    return check.stamp({
         "deleted_count": deleted_count,
-    }
+    })
 
 
 @command("scene.list_objects")
@@ -69,7 +71,8 @@ def list_objects(params: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    return {
+    check.list_matches_scene(objects)
+    return check.stamp({
         "count": len(objects),
         "objects": objects,
-    }
+    })

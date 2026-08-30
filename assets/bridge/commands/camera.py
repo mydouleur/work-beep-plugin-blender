@@ -4,6 +4,7 @@ import math
 import bpy
 from mathutils import Vector
 
+import check
 from registry import command
 
 
@@ -64,15 +65,22 @@ def add_camera(params: dict[str, Any]) -> dict[str, Any]:
 
     obj.data.lens = lens
 
-    if bool(params.get("set_active", True)):
+    set_active = bool(params.get("set_active", True))
+    if set_active:
         bpy.context.scene.camera = obj
 
-    return {
+    check.object_exists(obj.name, "CAMERA")
+    check.vec_close(obj.location, location, "location")
+    if abs(float(obj.data.lens) - lens) > 1e-3:
+        check.fail(f'镜头焦距不符：期望 {lens}，实际 {obj.data.lens}')
+    if set_active and bpy.context.scene.camera != obj:
+        check.fail(f'场景活动相机应为 "{obj.name}"')
+    return check.stamp({
         "name": obj.name,
         "location": list(location),
         "lens": lens,
         "active": bpy.context.scene.camera == obj,
-    }
+    })
 
 
 @command("camera.look_at")
@@ -102,11 +110,17 @@ def camera_look_at(params: dict[str, Any]) -> dict[str, Any]:
         "Y",
     ).to_euler()
 
-    return {
+    expected = (Vector(target) - camera.location).to_track_quat(
+        "-Z",
+        "Y",
+    ).to_euler()
+    check.object_exists(camera.name, "CAMERA")
+    check.vec_close(camera.rotation_euler, expected, "rotation")
+    return check.stamp({
         "name": camera.name,
         "target": list(target),
         "rotation": [
             math.degrees(v)
             for v in camera.rotation_euler
         ],
-    }
+    })

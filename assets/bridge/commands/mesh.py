@@ -2,6 +2,7 @@ from typing import Any
 
 import bpy
 
+import check
 from registry import command
 
 
@@ -112,6 +113,7 @@ def subdivide_mesh(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('"number_cuts" must be at least 1.')
 
     obj = _get_mesh_object(object_name)
+    faces_before = len(obj.data.polygons)
 
     try:
         _enter_edit_mode(obj)
@@ -124,11 +126,14 @@ def subdivide_mesh(params: dict[str, Any]) -> dict[str, Any]:
     finally:
         _exit_edit_mode()
 
-    return {
+    faces_after = check.faces_increased(obj.name, faces_before)
+    return check.stamp({
         "name": obj.name,
         "operation": "subdivide",
         "number_cuts": number_cuts,
-    }
+        "faces_before": faces_before,
+        "faces_after": faces_after,
+    })
 
 
 @command("mesh.inset")
@@ -155,6 +160,7 @@ def inset_mesh(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('"thickness" must not be negative.')
 
     obj = _get_mesh_object(object_name)
+    faces_before = len(obj.data.polygons)
 
     try:
         _enter_edit_mode(obj)
@@ -168,12 +174,18 @@ def inset_mesh(params: dict[str, Any]) -> dict[str, Any]:
     finally:
         _exit_edit_mode()
 
-    return {
+    if thickness > 0 or depth != 0:
+        faces_after = check.faces_increased(obj.name, faces_before)
+    else:
+        faces_after = check.faces_count(obj.name)
+    return check.stamp({
         "name": obj.name,
         "operation": "inset",
         "thickness": thickness,
         "depth": depth,
-    }
+        "faces_before": faces_before,
+        "faces_after": faces_after,
+    })
 
 
 @command("mesh.bevel")
@@ -203,6 +215,7 @@ def bevel_mesh(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('"segments" must be at least 1.')
 
     obj = _get_mesh_object(object_name)
+    faces_before = len(obj.data.polygons)
 
     try:
         _enter_edit_mode(obj)
@@ -216,12 +229,18 @@ def bevel_mesh(params: dict[str, Any]) -> dict[str, Any]:
     finally:
         _exit_edit_mode()
 
-    return {
+    if offset > 0:
+        faces_after = check.faces_increased(obj.name, faces_before)
+    else:
+        faces_after = check.faces_count(obj.name)
+    return check.stamp({
         "name": obj.name,
         "operation": "bevel",
         "offset": offset,
         "segments": segments,
-    }
+        "faces_before": faces_before,
+        "faces_after": faces_after,
+    })
 
 
 @command("mesh.extrude_face")
@@ -264,6 +283,7 @@ def extrude_face(params: dict[str, Any]) -> dict[str, Any]:
         ) from error
 
     obj = _get_mesh_object(name)
+    faces_before = len(obj.data.polygons)
 
     # Important: store only the integer index.
     face_index = _find_directional_face_index(
@@ -299,12 +319,15 @@ def extrude_face(params: dict[str, Any]) -> dict[str, Any]:
     finally:
         _exit_edit_mode()
 
-    return {
+    faces_after = check.faces_increased(obj.name, faces_before)
+    return check.stamp({
         "name": obj.name,
         "face": face_direction,
         "face_index": face_index,
         "offset": list(offset_xyz),
-    }
+        "faces_before": faces_before,
+        "faces_after": faces_after,
+    })
 
 
 @command("mesh.quadriflow_remesh")
@@ -373,15 +396,15 @@ def quadriflow_remesh(params: dict[str, Any]) -> dict[str, Any]:
             f"QuadriFlow did not finish successfully: {result}"
         )
 
-    faces_after = len(obj.data.polygons)
+    faces_after = check.faces_count(obj.name)
 
-    return {
+    return check.stamp({
         "name": obj.name,
         "operation": "quadriflow_remesh",
         "target_faces": target_faces,
         "faces_before": faces_before,
         "faces_after": faces_after,
-    }
+    })
 
 
 @command("mesh.stats")
@@ -402,10 +425,13 @@ def mesh_stats(params: dict[str, Any]) -> dict[str, Any]:
 
     obj = _get_mesh_object(name)
     mesh = obj.data
-
-    return {
+    check.mesh_alive(obj.name)
+    payload = {
         "name": obj.name,
         "vertices": len(mesh.vertices),
         "edges": len(mesh.edges),
         "faces": len(mesh.polygons),
     }
+    if payload["faces"] != len(obj.data.polygons):
+        check.fail("mesh.stats 面数与当前网格不一致")
+    return check.stamp(payload)

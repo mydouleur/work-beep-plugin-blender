@@ -15,8 +15,11 @@ function bridgeTool(
         async run(args, ctx) {
             if (!state.port) throw new Error("Blender 未启动或桥未就绪");
             const data = await ctx.call(state.port, cmd, args ?? {});
-            if (data && typeof data === "object" && "ok" in data && (data as { ok?: boolean }).ok === false) {
-                throw new Error(`验收未通过: ${JSON.stringify(data)}`);
+            if (data && typeof data === "object") {
+                const payload = data as { ok?: boolean; validated?: boolean };
+                if (payload.ok === false || payload.validated === false) {
+                    throw new Error(`验收未通过: ${JSON.stringify(data)}`);
+                }
             }
             return JSON.stringify(data);
         },
