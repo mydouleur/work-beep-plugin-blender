@@ -15,6 +15,9 @@ function bridgeTool(
         async run(args, ctx) {
             if (!state.port) throw new Error("Blender 未启动或桥未就绪");
             const data = await ctx.call(state.port, cmd, args ?? {});
+            if (data && typeof data === "object" && "ok" in data && (data as { ok?: boolean }).ok === false) {
+                throw new Error(`验收未通过: ${JSON.stringify(data)}`);
+            }
             return JSON.stringify(data);
         },
     };
@@ -720,4 +723,55 @@ export const tools: PluginTool[] = [
         "properties": {},
         "additionalProperties": false
 }),
+    bridgeTool("view.set_axis", "把 3D 视口切到指定正交视图", {
+        type: "object",
+        properties: {
+            view: {
+                type: "string",
+                description: "front/right/top/back/left/bottom",
+                enum: ["front", "right", "top", "back", "left", "bottom"],
+            },
+        },
+        required: ["view"],
+        additionalProperties: false,
+    }),
+    bridgeTool("render.view", "把指定物体渲成一张正交 PNG，并验收文件（存在/非空/PNG）", {
+        type: "object",
+        properties: {
+            name: { type: "string", description: "物体名称" },
+            view: {
+                type: "string",
+                description: "视图，默认 front",
+                enum: ["front", "right", "top", "back", "left", "bottom"],
+            },
+            path: { type: "string", description: "输出 PNG 路径，省略则写临时目录" },
+            resolution: { type: "number", description: "边长像素，默认 512" },
+        },
+        required: ["name"],
+        additionalProperties: false,
+    }),
+    bridgeTool("render.views", "按顺序把物体渲成多张正交 PNG（默认前/右/顶/后），缺一张或坏图则验收失败", {
+        type: "object",
+        properties: {
+            name: { type: "string", description: "物体名称" },
+            output_dir: { type: "string", description: "输出目录，省略则用临时目录" },
+            views: {
+                type: "array",
+                description: "视图列表，默认 front,right,top,back",
+            },
+            resolution: { type: "number", description: "边长像素，默认 512" },
+        },
+        required: ["name"],
+        additionalProperties: false,
+    }),
+    bridgeTool("render.validate_views", "只检查已有多视图 PNG 是否齐、是否合法，不重新渲染", {
+        type: "object",
+        properties: {
+            output_dir: { type: "string", description: "图片所在目录" },
+            name: { type: "string", description: "物体名，用于拼文件名 object_view.png" },
+            views: { type: "array", description: "期望的视图列表" },
+        },
+        required: ["output_dir"],
+        additionalProperties: false,
+    }),
 ];

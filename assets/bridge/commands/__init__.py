@@ -11,3 +11,4 @@ from . import modifier  # noqa: F401
 from . import material  # noqa: F401
 from . import camera  # noqa: F401
 from . import light  # noqa: F401
+from . import render  # noqa: F401
