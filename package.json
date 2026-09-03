@@ -8,6 +8,9 @@
     "build": "beep-plugin build",
     "dev": "beep-plugin dev",
     "check:tools": "node scripts/check_tools_sync.mjs",
+    "test:unit": "python scripts/test_validate_png.py",
+    "test:bridge": "python scripts/run_ci_tests.py",
+    "test": "pnpm check:tools && pnpm test:unit && pnpm test:bridge",
     "deploy": "node scripts/deploy.mjs",
     "start": "node scripts/start.mjs"
   },

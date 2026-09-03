@@ -164,12 +164,16 @@ def inset_mesh(params: dict[str, Any]) -> dict[str, Any]:
 
     try:
         _enter_edit_mode(obj)
+        bpy.ops.mesh.select_mode(type="FACE")
         _select_all_mesh()
 
-        bpy.ops.mesh.inset(
+        result = bpy.ops.mesh.inset(
             thickness=thickness,
             depth=depth,
+            use_individual=True,
         )
+        if "FINISHED" not in result:
+            raise RuntimeError(f"inset 未完成: {result}")
 
     finally:
         _exit_edit_mode()

@@ -753,7 +753,7 @@ export const tools: PluginTool[] = [
         required: ["name"],
         additionalProperties: false,
     }),
-    bridgeTool("render.views", "按顺序把物体渲成多张正交 PNG（默认前/右/顶/后），缺一张或坏图则验收失败", {
+    bridgeTool("render.views", "按名称渲单个物体的多张正交 PNG。多部件模型不要为此做布尔合并，改用 render.scene_views", {
         type: "object",
         properties: {
             name: { type: "string", description: "物体名称" },
@@ -765,6 +765,18 @@ export const tools: PluginTool[] = [
             resolution: { type: "number", description: "边长像素，默认 512" },
         },
         required: ["name"],
+        additionalProperties: false,
+    }),
+    bridgeTool("render.scene_views", "渲整个场景所有可见网格的正交 PNG（联合包围盒）。椅子等多物体保持分开即可，不要布尔合并", {
+        type: "object",
+        properties: {
+            output_dir: { type: "string", description: "输出目录，省略则用临时目录" },
+            views: {
+                type: "array",
+                description: "视图列表，默认 front,right,top",
+            },
+            resolution: { type: "number", description: "边长像素，默认 512" },
+        },
         additionalProperties: false,
     }),
     bridgeTool("render.validate_views", "只检查已有多视图 PNG 是否齐、是否合法，不重新渲染", {

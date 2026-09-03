@@ -6,7 +6,6 @@ Validation：每张图必须存在、非空、PNG 头合法；批次缺一张即
 from __future__ import annotations
 
 import os
-import struct
 import tempfile
 from typing import Any
 
@@ -15,6 +14,7 @@ from mathutils import Vector
 
 import check
 from registry import command
+from validate_png import validate_png
 
 # 相机放在物体哪一侧（Blender：前视图从 -Y 看向原点）
 VIEW_DIR = {
@@ -27,7 +27,6 @@ VIEW_DIR = {
 }
 
 DEFAULT_VIEWS = ("front", "right", "top", "back")
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def _safe_name(name: str) -> str:
@@ -62,9 +61,39 @@ def _world_bounds(obj):
     return center, span
 
 
+def _visible_meshes():
+    meshes = [
+        obj for obj in bpy.context.scene.objects
+        if obj.type == "MESH" and not obj.hide_viewport and not obj.hide_render
+    ]
+    if not meshes:
+        raise ValueError("场景里没有可见网格")
+    return meshes
+
+
+def _union_world_bounds(objs):
+    corners = []
+    for obj in objs:
+        corners.extend(obj.matrix_world @ Vector(c) for c in obj.bound_box)
+    mn = Vector((
+        min(c.x for c in corners),
+        min(c.y for c in corners),
+        min(c.z for c in corners),
+    ))
+    mx = Vector((
+        max(c.x for c in corners),
+        max(c.y for c in corners),
+        max(c.z for c in corners),
+    ))
+    center = (mn + mx) * 0.5
+    size = mx - mn
+    span = max(size.x, size.y, size.z, 0.01)
+    return center, span
+
+
 def _pick_engine() -> str:
     current = bpy.context.scene.render.engine
-    for name in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES"):
+    for name in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "BLENDER_WORKBENCH", "CYCLES"):
         try:
             bpy.context.scene.render.engine = name
             return name
@@ -73,40 +102,11 @@ def _pick_engine() -> str:
     return current
 
 
-def _validate_png(path: str) -> dict[str, Any]:
-    """标准库验收：存在、非空、PNG 签名、IHDR 宽高。"""
-    check: dict[str, Any] = {"path": path, "ok": False}
-    if not os.path.isfile(path):
-        check["error"] = "文件不存在"
-        return check
-    size = os.path.getsize(path)
-    check["bytes"] = size
-    if size <= 0:
-        check["error"] = "空文件"
-        return check
-    with open(path, "rb") as f:
-        header = f.read(8)
-        if header != PNG_MAGIC:
-            check["error"] = "不是合法 PNG"
-            return check
-        # IHDR：4 长度 + 4 类型 + 4 宽 + 4 高
-        ihdr = f.read(16)
-    if len(ihdr) < 16 or ihdr[4:8] != b"IHDR":
-        check["error"] = "PNG 缺少 IHDR"
-        return check
-    check["width"] = struct.unpack(">I", ihdr[8:12])[0]
-    check["height"] = struct.unpack(">I", ihdr[12:16])[0]
-    if check["width"] < 8 or check["height"] < 8:
-        check["error"] = f"分辨率过小 {check['width']}x{check['height']}"
-        return check
-    check["ok"] = True
-    return check
-
-
-def _place_ortho_camera(obj, view: str):
+def _place_ortho_camera(obj, view: str, center=None, span=None):
     if view not in VIEW_DIR:
         raise ValueError(f"未知视图: {view}（可选 {', '.join(VIEW_DIR)}）")
-    center, span = _world_bounds(obj)
+    if center is None or span is None:
+        center, span = _world_bounds(obj)
     dist = span * 2.5
     cam_data = bpy.data.cameras.new("BeepViewCamData")
     cam_data.type = "ORTHO"
@@ -122,7 +122,7 @@ def _place_ortho_camera(obj, view: str):
     return cam
 
 
-def _render_one(obj, view: str, path: str, resolution: int) -> dict[str, Any]:
+def _render_one(obj, view: str, path: str, resolution: int, *, center=None, span=None, label: str | None = None) -> dict[str, Any]:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     scene = bpy.context.scene
     prev = {
@@ -136,7 +136,7 @@ def _render_one(obj, view: str, path: str, resolution: int) -> dict[str, Any]:
     }
     cam = None
     try:
-        cam = _place_ortho_camera(obj, view)
+        cam = _place_ortho_camera(obj, view, center=center, span=span)
         scene.camera = cam
         scene.render.engine = _pick_engine()
         scene.render.resolution_x = resolution
@@ -161,14 +161,14 @@ def _render_one(obj, view: str, path: str, resolution: int) -> dict[str, Any]:
             if data is not None:
                 bpy.data.cameras.remove(data)
 
-    check = _validate_png(path)
-    check["view"] = view
-    check["name"] = obj.name
-    if not check["ok"]:
+    item = validate_png(path)
+    item["view"] = view
+    item["name"] = label or obj.name
+    if not item["ok"]:
         raise RuntimeError(
-            f"视图 {view} 验收失败: {check.get('error')}（{path}）"
+            f"视图 {view} 验收失败: {item.get('error')}（{path}）"
         )
-    return check
+    return item
 
 
 @command("render.view")
@@ -196,7 +196,9 @@ def render_views(params: dict[str, Any]) -> dict[str, Any]:
     if not name:
         raise ValueError("缺少参数 name")
     obj = _get_mesh_or_any(name)
-    raw = params.get("views") or list(DEFAULT_VIEWS)
+    raw = params.get("views")
+    if raw is None:
+        raw = list(DEFAULT_VIEWS)
     if not isinstance(raw, (list, tuple)) or not raw:
         raise ValueError("views 必须是非空数组")
     views = [str(v).strip().lower() for v in raw]
@@ -236,6 +238,62 @@ def render_views(params: dict[str, Any]) -> dict[str, Any]:
     return check.stamp(payload)
 
 
+@command("render.scene_views")
+def render_scene_views(params: dict[str, Any]) -> dict[str, Any]:
+    """按场景里所有可见网格的联合包围盒渲正交图。多物体不必布尔合并。"""
+    meshes = _visible_meshes()
+    center, span = _union_world_bounds(meshes)
+    raw = params.get("views")
+    if raw is None:
+        raw = ["front", "right", "top"]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ValueError("views 必须是非空数组")
+    views = [str(v).strip().lower() for v in raw]
+    for v in views:
+        if v not in VIEW_DIR:
+            raise ValueError(f"未知视图: {v}")
+    resolution = int(params.get("resolution", 512))
+    if resolution < 64:
+        raise ValueError("resolution 至少 64")
+    folder = str(params.get("output_dir", "")).strip()
+    if not folder:
+        folder = tempfile.mkdtemp(prefix="beep-scene-views-")
+    os.makedirs(folder, exist_ok=True)
+
+    results = []
+    failed = []
+    for view in views:
+        path = os.path.join(folder, f"scene_{view}.png")
+        try:
+            results.append(_render_one(
+                meshes[0],
+                view,
+                path,
+                resolution,
+                center=center,
+                span=span,
+                label="scene",
+            ))
+        except Exception as e:
+            failed.append({"view": view, "path": path, "ok": False, "error": str(e)})
+
+    payload = {
+        "ok": len(failed) == 0 and len(results) == len(views),
+        "name": "scene",
+        "objects": [obj.name for obj in meshes],
+        "output_dir": folder,
+        "expected": views,
+        "views": results,
+        "failed": failed,
+    }
+    if not payload["ok"]:
+        raise RuntimeError(
+            "场景多视图验收未通过："
+            + ",".join(f"{x['view']}({x.get('error', '')})" for x in failed)
+        )
+    return check.stamp(payload)
+
+
 @command("render.validate_views")
 def validate_views(params: dict[str, Any]) -> dict[str, Any]:
     """只验收已有 PNG，不再渲染。缺图或坏图则失败。"""
@@ -252,7 +310,7 @@ def validate_views(params: dict[str, Any]) -> dict[str, Any]:
             path = os.path.join(folder, f"{stem}_{view}.png")
         else:
             path = os.path.join(folder, f"{view}.png")
-        item = _validate_png(path)
+        item = validate_png(path)
         item["view"] = view
         checks.append(item)
     failed = [c for c in checks if not c["ok"]]
