@@ -4,3 +4,11 @@
 """
 
 from . import view  # noqa: F401
+from . import object  # noqa: F401
+from . import scene  # noqa: F401
+from . import mesh  # noqa: F401
+from . import modifier  # noqa: F401
+from . import material  # noqa: F401
+from . import camera  # noqa: F401
+from . import light  # noqa: F401
+from . import render  # noqa: F401

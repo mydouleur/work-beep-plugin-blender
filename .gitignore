@@ -4,3 +4,4 @@ runtime/
 host-app/
 __pycache__/
 *.pyc
+scripts/.ci-bridge-result.txt

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  plugin:
+    name: Plugin Build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check tools sync
+        run: pnpm check:tools
+
+      - name: Build plugin
+        run: pnpm build
+
+  python:
+    name: Python Bridge Check
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check Python syntax
+        run: python -m compileall assets/bridge scripts
+
+      - name: PNG validation unit tests
+        run: python scripts/test_validate_png.py
+
+  bridge:
+    name: Bridge Integration
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache Blender runtime
+        id: blender-cache
+        uses: actions/cache@v4
+        with:
+          path: runtime/blender-5.2.1-windows-x64
+          key: blender-5.2.1-windows-x64
+
+      - name: Fetch Blender
+        if: steps.blender-cache.outputs.cache-hit != 'true'
+        run: python scripts/fetch_blender.py --mirror official --skip-verify
+
+      - name: Run positive and negative bridge tests
+        run: python scripts/run_ci_tests.py
