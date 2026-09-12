@@ -45,7 +45,7 @@ def main() -> int:
     if exe is None:
         print(
             "找不到 blender.exe。请先运行：\n"
-            "  python scripts/fetch_blender.py --mirror aliyun\n"
+            "  python scripts/fetch_blender.py download --mirror aliyun\n"
             "或设置环境变量 BLENDER_EXE。"
         )
         return 1

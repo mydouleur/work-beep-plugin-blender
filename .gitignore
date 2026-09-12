@@ -5,3 +5,7 @@ host-app/
 __pycache__/
 *.pyc
 scripts/.ci-bridge-result.txt
+scripts/dist/
+scripts/.pyinstaller-work/
+assets/tools/*.exe
+assets/tools/*.exe.part

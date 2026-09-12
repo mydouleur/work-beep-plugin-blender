@@ -17,6 +17,9 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parent.parent
+# GitHub Actions 的 Windows runner 没有可用 GPU，Blender 5.2 一渲正交图就会
+# WGL ACCESS_VIOLATION 把整个进程打死，try/except 接不住。
+SKIP_GPU = os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("BEEP_SKIP_GPU_RENDER") == "1"
 sys.path.insert(0, str(ROOT / "assets" / "bridge"))
 
 import bpy  # noqa: E402
@@ -228,20 +231,24 @@ def main() -> int:
     )
 
     with tempfile.TemporaryDirectory(prefix="beep-ci-view-") as folder:
-        try:
-            r.call(
-                "render.view",
-                {
-                    "name": "Cube",
-                    "view": "front",
-                    "resolution": 128,
-                    "path": os.path.join(folder, "Cube_front.png"),
-                },
-            )
-            can_render = True
-        except Exception as exc:
+        if SKIP_GPU:
             can_render = False
-            print(f"  SKIP  渲染正例（无头环境无法出图：{exc}）")
+            print("  SKIP  渲染正例（CI 无 GPU，避免 Blender WGL 崩溃）")
+        else:
+            try:
+                r.call(
+                    "render.view",
+                    {
+                        "name": "Cube",
+                        "view": "front",
+                        "resolution": 128,
+                        "path": os.path.join(folder, "Cube_front.png"),
+                    },
+                )
+                can_render = True
+            except Exception as exc:
+                can_render = False
+                print(f"  SKIP  渲染正例（无头环境无法出图：{exc}）")
         if can_render:
             r.pos(
                 "pos.render_view",

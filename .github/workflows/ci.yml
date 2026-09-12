@@ -81,7 +81,9 @@ jobs:
 
       - name: Fetch Blender
         if: steps.blender-cache.outputs.cache-hit != 'true'
-        run: python scripts/fetch_blender.py --mirror official --skip-verify
+        run: python scripts/fetch_blender.py download --mirror official --skip-verify
 
       - name: Run positive and negative bridge tests
+        env:
+          BEEP_SKIP_GPU_RENDER: "1"
         run: python scripts/run_ci_tests.py

@@ -12,7 +12,8 @@
     "test:bridge": "python scripts/run_ci_tests.py",
     "test": "pnpm check:tools && pnpm test:unit && pnpm test:bridge",
     "deploy": "node scripts/deploy.mjs",
-    "start": "node scripts/start.mjs"
+    "start": "node scripts/start.mjs",
+    "build:fetch-blender": "python scripts/build_fetch_blender_exe.py"
   },
   "devDependencies": {
     "@beep/sdk": "github:mydouleur/work-beep-plugin-sdk#main",
