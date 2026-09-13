@@ -85,3 +85,152 @@ export function makeExternalId(path: string, version: string): string {
     const base = path.replace(/\\/g, "/").split("/").pop() ?? "blender.exe";
     return `ext-${version}-${base}-${path.length}`;
 }
+
+export type FoundBlender = {
+    path: string;
+    version: string;
+    label: string;
+};
+
+const CMD_EXE = "C:\\Windows\\System32\\cmd.exe";
+const WHERE_EXE = "C:\\Windows\\System32\\where.exe";
+
+/** 安装器常用的「Blender x.y」目录名（不是完整补丁号） */
+const INSTALL_FOLDERS = [
+    "Blender",
+    "Blender 5.2",
+    "Blender 5.1",
+    "Blender 5.0",
+    "Blender 4.5",
+    "Blender 4.4",
+    "Blender 4.3",
+    "Blender 4.2",
+    "Blender 4.1",
+    "Blender 4.0",
+    "Blender 3.6",
+    "Blender 3.3",
+];
+
+export function winPath(path: string): string {
+    return path.replace(/\//g, "\\");
+}
+
+export function samePath(a: string, b: string): boolean {
+    return winPath(a).toLowerCase() === winPath(b).toLowerCase();
+}
+
+function isBlenderExe(path: string): boolean {
+    return /(?:^|[\\/])blender\.exe$/i.test(path.trim());
+}
+
+async function readEnv(ctx: HostCtx, name: string): Promise<string | null> {
+    if (!(await ctx.exists(CMD_EXE))) return null;
+    try {
+        const cap = await ctx.runCapture(CMD_EXE, ["/c", `echo %${name}%`], { timeoutMs: 3000 });
+        const v = (cap.stdout || "").trim();
+        if (!v || v.toLowerCase() === `%${name}%`.toLowerCase()) return null;
+        return v;
+    } catch {
+        return null;
+    }
+}
+
+async function listBlenderExeUnder(ctx: HostCtx, root: string): Promise<string[]> {
+    if (!(await ctx.exists(CMD_EXE))) return [];
+    try {
+        const cap = await ctx.runCapture(
+            CMD_EXE,
+            ["/c", `if exist "${root}" (dir /b /s /a-d "${root}\\blender.exe")`],
+            { timeoutMs: 8000 },
+        );
+        return (cap.stdout || "")
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(isBlenderExe);
+    } catch {
+        return [];
+    }
+}
+
+/** 只扫常见安装位置与 PATH，不做全盘搜索 */
+export async function collectCandidateExes(ctx: HostCtx): Promise<string[]> {
+    const found = new Set<string>();
+    const add = (path: string) => {
+        const n = winPath(path.trim());
+        if (isBlenderExe(n)) found.add(n);
+    };
+
+    const programFiles = (await readEnv(ctx, "ProgramFiles")) ?? "C:\\Program Files";
+    const programFilesX86 =
+        (await readEnv(ctx, "ProgramFiles(x86)")) ?? "C:\\Program Files (x86)";
+    const localApp = await readEnv(ctx, "LOCALAPPDATA");
+    const userProfile = await readEnv(ctx, "USERPROFILE");
+
+    const foundationRoots = [
+        `${programFiles}\\Blender Foundation`,
+        `${programFilesX86}\\Blender Foundation`,
+    ];
+
+    for (const root of foundationRoots) {
+        for (const folder of INSTALL_FOLDERS) {
+            const exe = `${root}\\${folder}\\blender.exe`;
+            if (await ctx.exists(exe)) add(exe);
+        }
+        for (const exe of await listBlenderExeUnder(ctx, root)) add(exe);
+    }
+
+    const extras = [
+        `${programFilesX86}\\Steam\\steamapps\\common\\Blender\\blender.exe`,
+        `${programFiles}\\Steam\\steamapps\\common\\Blender\\blender.exe`,
+    ];
+    if (localApp) extras.push(`${localApp}\\Programs\\Blender\\blender.exe`);
+    if (userProfile) extras.push(`${userProfile}\\scoop\\apps\\blender\\current\\blender.exe`);
+    for (const exe of extras) {
+        if (await ctx.exists(exe)) add(exe);
+    }
+
+    if (await ctx.exists(WHERE_EXE)) {
+        try {
+            const cap = await ctx.runCapture(WHERE_EXE, ["blender"], { timeoutMs: 5000 });
+            for (const line of (cap.stdout || "").split(/\r?\n/)) {
+                if (isBlenderExe(line)) add(line);
+            }
+        } catch {
+            /* PATH 里没有就跳过 */
+        }
+    }
+
+    return [...found];
+}
+
+function isManagedRuntime(ctx: HostCtx, path: string): boolean {
+    const root = winPath(ctx.resolveAsset("runtime")).toLowerCase();
+    return winPath(path).toLowerCase().startsWith(root);
+}
+
+/** 扫描本机已装 Blender，排除托管绿色版与已添加路径 */
+export async function scanLocalBlenders(
+    ctx: HostCtx,
+    excludePaths: string[] = [],
+): Promise<FoundBlender[]> {
+    const skip = excludePaths.map((p) => winPath(p).toLowerCase());
+    const candidates = (await collectCandidateExes(ctx)).filter((path) => {
+        const key = winPath(path).toLowerCase();
+        return !skip.includes(key) && !isManagedRuntime(ctx, path);
+    });
+
+    const rows = await Promise.all(
+        candidates.map(async (path) => {
+            try {
+                const probed = await probeExternalExe(ctx, path);
+                return { path, ...probed } satisfies FoundBlender;
+            } catch {
+                return null;
+            }
+        }),
+    );
+
+    return rows
+        .filter((row): row is FoundBlender => row !== null)
+        .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
+}
