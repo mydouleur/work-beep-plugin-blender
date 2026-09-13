@@ -471,7 +471,7 @@ onBeforeUnmount(() => stopWatch?.());
 
                         <article class="card add-card" v-if="externalOk">
                             <div class="card-head">
-                                <h3 class="card-title">Use Existing…</h3>
+                                <h3 class="card-title">Use Existing Blender</h3>
                             </div>
                             <p class="card-status">选择本机 blender.exe</p>
                             <p class="card-hint">注入 bridge，无需装 addon</p>
@@ -487,7 +487,7 @@ onBeforeUnmount(() => stopWatch?.());
                         </article>
                         <article class="card disabled" v-else>
                             <div class="card-head">
-                                <h3 class="card-title">Use Existing…</h3>
+                                <h3 class="card-title">Use Existing Blender</h3>
                             </div>
                             <p class="card-status">需要更新 Host</p>
                             <p class="card-hint">pickFile / runCapture 未就绪</p>
@@ -518,11 +518,20 @@ onBeforeUnmount(() => stopWatch?.());
 <style scoped>
 .blender-panel {
     position: relative;
+    box-sizing: border-box;
     height: 100%;
-    overflow: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .manager {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -557,6 +566,8 @@ onBeforeUnmount(() => stopWatch?.());
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .section-title {
@@ -569,16 +580,18 @@ onBeforeUnmount(() => stopWatch?.());
 }
 
 .row {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
     gap: 12px;
-    overflow-x: auto;
-    padding-bottom: 4px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .card {
-    flex: 0 0 200px;
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -600,6 +613,10 @@ onBeforeUnmount(() => stopWatch?.());
     opacity: 0.55;
 }
 
+.card.tripo {
+    max-width: 280px;
+}
+
 .card-head {
     display: flex;
     align-items: center;
@@ -609,9 +626,11 @@ onBeforeUnmount(() => stopWatch?.());
 
 .card-title {
     margin: 0;
+    min-width: 0;
     font-size: 0.9375rem;
     font-weight: 600;
     color: #eee;
+    overflow-wrap: anywhere;
 }
 
 .badge {
