@@ -482,3 +482,140 @@ def duplicate_object(params: dict[str, Any]) -> dict[str, Any]:
             for value in duplicate.scale
         ],
     })
+
+
+@command("object.add_empty")
+def add_empty(params: dict[str, Any]) -> dict[str, Any]:
+    """
+    Add an Empty object, typically used as a hierarchy/group root.
+
+    Input example:
+        {
+            "name": "BackAssembly",
+            "location": [0, 0, 0]
+        }
+    """
+    import bpy
+
+    name = params.get("name")
+
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError('"name" cannot be empty.')
+
+    name = name.strip()
+
+    # Blender 遇到重名会静默改成 BackAssembly.001，后续按名引用就会错位
+    if bpy.data.objects.get(name) is not None:
+        raise ValueError(f'Object "{name}" already exists.')
+
+    location = _read_vector3(
+        params=params,
+        key="location",
+        default=[0.0, 0.0, 0.0],
+    )
+
+    obj = bpy.data.objects.new(name, None)
+    obj.empty_display_type = "PLAIN_AXES"
+    obj.location = location
+    bpy.context.collection.objects.link(obj)
+
+    check.object_exists(obj.name, "EMPTY")
+    if obj.name != name:
+        check.fail(f'Empty 名称应为 "{name}"，实际 "{obj.name}"')
+    check.vec_close(obj.location, location, "location")
+    return check.stamp({
+        "name": obj.name,
+        "type": obj.type,
+        "empty_display_type": obj.empty_display_type,
+        "location": [float(value) for value in obj.location],
+    })
+
+
+@command("object.set_parent")
+def set_parent(params: dict[str, Any]) -> dict[str, Any]:
+    """
+    Parent one object to another.
+
+    Input example:
+        {
+            "child": "Back",
+            "parent": "BackAssembly",
+            "keep_transform": true
+        }
+    """
+    import bpy
+
+    child_name = str(params.get("child", "")).strip()
+    parent_name = str(params.get("parent", "")).strip()
+
+    if not child_name:
+        raise ValueError('"child" is required.')
+
+    if not parent_name:
+        raise ValueError('"parent" is required.')
+
+    keep_transform = params.get("keep_transform", True)
+
+    if not isinstance(keep_transform, bool):
+        raise ValueError('"keep_transform" must be a boolean.')
+
+    child = _get_object(child_name)
+    parent = _get_object(parent_name)
+
+    if child == parent:
+        raise ValueError("An object cannot be parented to itself.")
+
+    ancestor = parent
+    while ancestor is not None:
+        if ancestor == child:
+            raise ValueError(
+                f'Parenting "{child.name}" to "{parent.name}" would create a cycle.'
+            )
+        ancestor = ancestor.parent
+
+    view_layer = bpy.context.view_layer
+    # 先刷新依赖图，保证读到的 matrix_world 反映之前命令改过的 location/rotation/scale
+    view_layer.update()
+    world_before = child.matrix_world.copy()
+
+    parent_world = parent.matrix_world.copy()
+    basis = child.matrix_basis.copy()
+
+    child.parent = parent
+
+    if keep_transform:
+        # world = parent_world @ parent_inverse @ basis。
+        # 解出 parent_inverse 而不是直接赋 matrix_world：父级有旋转 + 非均匀缩放时，
+        # 新本地变换含剪切，分解回 loc/rot/scale 会丢失，子物体就会跳。
+        try:
+            child.matrix_parent_inverse = (
+                parent_world.inverted() @ world_before @ basis.inverted()
+            )
+        except ValueError:
+            # 缩放为 0 的矩阵不可逆，退回由 Blender 分解
+            child.matrix_world = world_before
+    else:
+        child.matrix_parent_inverse.identity()
+
+    view_layer.update()
+
+    check.object_exists(child.name)
+    check.object_exists(parent.name)
+    if child.parent != parent:
+        check.fail(f'"{child.name}" 的父级应为 "{parent.name}"')
+    if child.name not in [obj.name for obj in parent.children]:
+        check.fail(f'"{parent.name}" 的 children 中没有 "{child.name}"')
+    if keep_transform:
+        check.vec_close(
+            [v for row in child.matrix_world for v in row],
+            [v for row in world_before for v in row],
+            "matrix_world",
+        )
+
+    return check.stamp({
+        "child": child.name,
+        "parent": parent.name,
+        "keep_transform": keep_transform,
+        "location": [float(value) for value in child.location],
+        "world_location": [float(value) for value in child.matrix_world.translation],
+    })

@@ -41,6 +41,14 @@ CORE_ERRORS = [
     "object.scale_missing",
     "object.scale_le_0",
     "object.duplicate_no_name",
+    "object.empty_name_empty",
+    "object.empty_exists",
+    "object.empty_location_bad",
+    "object.parent_child_missing",
+    "object.parent_missing",
+    "object.parent_same",
+    "object.parent_cycle",
+    "object.parent_keep_bad",
     "mesh.not_found",
     "mesh.not_mesh",
     "mesh.subdivide_bad",
@@ -86,6 +94,8 @@ CORE_ERRORS = [
     "render.validate_missing_file",
     "view.bad_axis",
     "view.no_viewport",
+    "scene.isolate_hierarchy_no_root",
+    "scene.isolate_hierarchy_not_found",
 ]
 
 
@@ -115,7 +125,9 @@ class Runner:
         try:
             data = self.call(cmd, params)
             if check is not None:
-                check(data)
+                result = check(data)
+                if result is False:
+                    raise AssertionError(f"positive check failed: {data}")
             self._ok(name)
         except Exception as exc:
             self._fail(name, f"{type(exc).__name__}: {exc}")
@@ -156,6 +168,191 @@ def main() -> int:
         {"name": "Cube", "size": 2, "location": [0, 0, 0]},
         lambda d: d.get("validated") is True and _has_obj("Cube"),
     )
+    # --- hierarchy / visibility tools ---
+
+    r.call(
+        "object.add_cube",
+        {"name": "Seat", "size": 1, "location": [0, 0, 0]},
+    )
+    r.call(
+        "object.add_cube",
+        {"name": "Back", "size": 1, "location": [0, 0, 1]},
+    )
+
+    # Build a simple hierarchy:
+    #
+    # Cube
+    # ├── Seat
+    # └── Back
+    #
+    seat = bpy.data.objects["Seat"]
+    back = bpy.data.objects["Back"]
+    cube = bpy.data.objects["Cube"]
+
+    seat.parent = cube
+    back.parent = cube
+
+    r.call(
+        "object.add_cube",
+        {"name": "BackDetail", "size": 0.5, "location": [0, 0, 2]},
+    )
+    back_detail = bpy.data.objects["BackDetail"]
+    back_detail.parent = back
+    r.pos(
+        "pos.list_hierarchy",
+        "scene.list_hierarchy",
+        {},
+        lambda d: (
+            d.get("count", 0) >= 3
+            and any(
+                o["name"] == "Cube"
+                and "Seat" in o.get("children", [])
+                and "Back" in o.get("children", [])
+                for o in d.get("objects", [])
+            )
+            and any(
+                o["name"] == "Seat"
+                and o.get("parent") == "Cube"
+                for o in d.get("objects", [])
+            )
+        ),
+    )
+    r.pos(
+        "pos.isolate_objects",
+        "scene.isolate_objects",
+        {"names": ["Seat"]},
+        lambda d: (
+            "Seat" in d.get("isolated", [])
+            and bpy.data.objects["Seat"].hide_viewport is False
+            and bpy.data.objects["Seat"].hide_render is False
+            and bpy.data.objects["Cube"].hide_viewport is True
+            and bpy.data.objects["Cube"].hide_render is True
+            and bpy.data.objects["Back"].hide_viewport is True
+            and bpy.data.objects["Back"].hide_render is True
+        ),
+    )
+    r.pos(
+        "pos.restore_visibility",
+        "scene.restore_visibility",
+        {},
+        lambda d: (
+            d.get("restored") is True
+            and bpy.data.objects["Seat"].hide_viewport is False
+            and bpy.data.objects["Seat"].hide_render is False
+            and bpy.data.objects["Cube"].hide_viewport is False
+            and bpy.data.objects["Cube"].hide_render is False
+            and bpy.data.objects["Back"].hide_viewport is False
+            and bpy.data.objects["Back"].hide_render is False
+        ),
+    )
+    # Restore must preserve visibility that existed before isolation.
+    bpy.data.objects["Back"].hide_viewport = True
+    bpy.data.objects["Back"].hide_render = True
+
+    r.call(
+        "scene.isolate_objects",
+        {"names": ["Seat"]},
+    )
+
+    r.pos(
+        "pos.restore_original_visibility",
+        "scene.restore_visibility",
+        {},
+        lambda d: (
+            d.get("restored") is True
+            and bpy.data.objects["Cube"].hide_viewport is False
+            and bpy.data.objects["Seat"].hide_viewport is False
+            and bpy.data.objects["Back"].hide_viewport is True
+            and bpy.data.objects["Back"].hide_render is True
+        ),
+    )
+
+    # Leave the rest of the old integration test with a normal visible scene.
+    bpy.data.objects["Back"].hide_viewport = False
+    bpy.data.objects["Back"].hide_render = False
+    # --- end of hierarchy / visibility tools ---
+
+    r.pos(
+        "pos.isolate_hierarchy",
+        "scene.isolate_hierarchy",
+        {"root": "Back"},
+        lambda d: (
+            d.get("root") == "Back"
+            and set(d.get("isolated", [])) == {"Back", "BackDetail"}
+            and bpy.data.objects["Back"].hide_viewport is False
+            and bpy.data.objects["BackDetail"].hide_viewport is False
+            and bpy.data.objects["Cube"].hide_viewport is True
+            and bpy.data.objects["Seat"].hide_viewport is True
+        ),
+    )
+    r.pos(
+        "pos.restore_hierarchy_visibility",
+        "scene.restore_visibility",
+        {},
+        lambda d: d.get("restored") is True,
+    )
+
+    # --- agent 自建层级：add_empty + set_parent ---
+    r.pos(
+        "pos.add_empty",
+        "object.add_empty",
+        {"name": "BackAssembly", "location": [1, 2, 0.5]},
+        lambda d: (
+            d.get("type") == "EMPTY"
+            and bpy.data.objects["BackAssembly"].type == "EMPTY"
+            and bpy.data.objects["BackAssembly"].empty_display_type == "PLAIN_AXES"
+            and d.get("location") == [1.0, 2.0, 0.5]
+        ),
+    )
+    # 父级带旋转和非均匀缩放，世界变换保持才有意义
+    r.call("object.rotate", {"name": "BackAssembly", "rotation": [0, 0, 45]})
+    r.call("object.scale", {"name": "BackAssembly", "scale": [2, 1, 0.5]})
+    r.call("object.move", {"name": "Back", "location": [0.5, -1, 1.5]})
+    r.call("object.rotate", {"name": "Back", "rotation": [10, 0, 30]})
+    bpy.context.view_layer.update()
+    back_world_before = [v for row in bpy.data.objects["Back"].matrix_world for v in row]
+
+    def _back_world_kept(_d) -> bool:
+        bpy.context.view_layer.update()
+        after = [v for row in bpy.data.objects["Back"].matrix_world for v in row]
+        return all(abs(a - b) < 1e-4 for a, b in zip(after, back_world_before))
+
+    r.pos(
+        "pos.set_parent",
+        "object.set_parent",
+        {"child": "Back", "parent": "BackAssembly", "keep_transform": True},
+        lambda d: (
+            d.get("child") == "Back"
+            and d.get("parent") == "BackAssembly"
+            and d.get("keep_transform") is True
+            and bpy.data.objects["Back"].parent == bpy.data.objects["BackAssembly"]
+            and "Back" in [c.name for c in bpy.data.objects["BackAssembly"].children]
+        ),
+    )
+    r.pos("pos.set_parent_world_kept", "scene.list_objects", {}, _back_world_kept)
+    r.pos(
+        "pos.list_hierarchy_assembly",
+        "scene.list_hierarchy",
+        {},
+        lambda d: (
+            any(
+                o["name"] == "Back" and o.get("parent") == "BackAssembly"
+                for o in d.get("objects", [])
+            )
+            and any(
+                o["name"] == "BackAssembly" and "Back" in o.get("children", [])
+                for o in d.get("objects", [])
+            )
+        ),
+    )
+    r.pos(
+        "pos.isolate_assembly",
+        "scene.isolate_hierarchy",
+        {"root": "BackAssembly"},
+        lambda d: set(d.get("isolated", [])) == {"BackAssembly", "Back", "BackDetail"},
+    )
+    r.call("scene.restore_visibility", {})
+    # --- end of agent 自建层级 ---
     r.pos(
         "pos.list_has_cube",
         "scene.list_objects",
@@ -292,6 +489,23 @@ def main() -> int:
     r.pos("pos.delete", "object.delete", {"name": "CubeCopy"}, lambda d: not _has_obj("CubeCopy"))
     r.pos("pos.clear", "scene.clear", {}, lambda d: len(list(bpy.data.objects)) == 0)
 
+    # isolate → clear → restore：clear 必须丢弃快照
+    r.call("object.add_cube", {"name": "SnapA"})
+    r.call("object.add_cube", {"name": "SnapB"})
+    r.call("scene.isolate_objects", {"names": ["SnapA"]})
+    r.pos(
+        "pos.clear_drops_snapshot",
+        "scene.clear",
+        {},
+        lambda d: d.get("visibility_snapshot_cleared") is True,
+    )
+    r.pos(
+        "pos.restore_after_clear",
+        "scene.restore_visibility",
+        {},
+        lambda d: d.get("restored") is False,
+    )
+
     # --- 反向：核心错误场景 ---
     print("\n[反向]")
     reset()
@@ -300,6 +514,25 @@ def main() -> int:
     r.call("light.add", {"name": "Key"})
     r.call("camera.add", {"name": "Shot", "location": [3, -3, 2]})
     r.call("material.create", {"name": "MatA"})
+
+    # --- hierarchy / visibility negative tests ---
+
+    r.neg(
+        "neg.isolate_hierarchy_no_root",
+        "scene.isolate_hierarchy_no_root",
+        "scene.isolate_hierarchy",
+        {},
+        "root",
+    )
+
+    r.neg(
+        "neg.isolate_hierarchy_not_found",
+        "scene.isolate_hierarchy_not_found",
+        "scene.isolate_hierarchy",
+        {"root": "NoSuchHierarchy"},
+        "not found",
+    )
+    # --- end of hierarchy / visibility negative tests ---
 
     r.neg("neg.object_not_found", "object.not_found", "object.move", {"name": "NoSuch", "location": [0, 0, 0]}, "not found")
     r.neg("neg.size_le_0", "object.size_le_0", "object.add_cube", {"name": "Bad", "size": 0}, "greater than zero")
@@ -314,6 +547,16 @@ def main() -> int:
     r.neg("neg.scale_missing", "object.scale_missing", "object.scale", {"name": "Cube"}, "scale")
     r.neg("neg.scale_le_0", "object.scale_le_0", "object.scale", {"name": "Cube", "scale": [1, 0, 1]}, "greater than zero")
     r.neg("neg.dup_no_name", "object.duplicate_no_name", "object.duplicate", {}, "name")
+    r.neg("neg.empty_no_name", "object.empty_name_empty", "object.add_empty", {"name": "  "}, "cannot be empty")
+    r.neg("neg.empty_exists", "object.empty_exists", "object.add_empty", {"name": "Cube"}, "already exists")
+    r.neg("neg.empty_location_bad", "object.empty_location_bad", "object.add_empty", {"name": "G", "location": [1]}, "exactly three")
+    r.call("object.add_empty", {"name": "Group"})
+    r.neg("neg.parent_child_missing", "object.parent_child_missing", "object.set_parent", {"child": "NoSuch", "parent": "Group"}, "not found")
+    r.neg("neg.parent_missing", "object.parent_missing", "object.set_parent", {"child": "Cube", "parent": "NoSuch"}, "not found")
+    r.neg("neg.parent_same", "object.parent_same", "object.set_parent", {"child": "Cube", "parent": "Cube"}, "itself")
+    r.call("object.set_parent", {"child": "Cube", "parent": "Group"})
+    r.neg("neg.parent_cycle", "object.parent_cycle", "object.set_parent", {"child": "Group", "parent": "Cube"}, "cycle")
+    r.neg("neg.parent_keep_bad", "object.parent_keep_bad", "object.set_parent", {"child": "Ball", "parent": "Group", "keep_transform": "yes"}, "boolean")
 
     r.neg("neg.mesh_not_found", "mesh.not_found", "mesh.stats", {"name": "Ghost"}, "not found")
     r.neg("neg.mesh_not_mesh", "mesh.not_mesh", "mesh.stats", {"name": "Key"}, "not a mesh")
