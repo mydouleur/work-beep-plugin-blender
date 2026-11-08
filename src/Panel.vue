@@ -6,10 +6,11 @@ import { canManageRuntime, canUseExternal, hostCtx } from "./ctx";
 import {
     loadExternals,
     makeExternalId,
-    probeExternalExe,
     saveExternals,
+    scanLocalBlenders,
     shortPath,
     type ExternalBlender,
+    type FoundBlender,
 } from "./external";
 import { fetchDownload, fetchList } from "./fetchClient";
 import { state } from "./state";
@@ -57,11 +58,13 @@ const cards = reactive<Record<string, CardState>>(
 );
 
 const externals = ref<ExternalBlender[]>([]);
+const foundLocals = ref<FoundBlender[]>([]);
 const status = ref("正在检查绿色版…");
 const starting = ref(false);
 const hostOk = ref(true);
 const externalOk = ref(true);
-const picking = ref(false);
+const scanning = ref(false);
+const scanned = ref(false);
 const mirror = ref<MirrorId>("aliyun");
 const embedded = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
@@ -71,6 +74,11 @@ const anyDownloading = computed(() =>
         (c) => c.status === "downloading" || c.status === "verifying" || c.status === "extracting",
     ),
 );
+
+const unusedFounds = computed(() => {
+    const have = new Set(externals.value.map((e) => e.path.replace(/\//g, "\\").toLowerCase()));
+    return foundLocals.value.filter((f) => !have.has(f.path.replace(/\//g, "\\").toLowerCase()));
+});
 
 function exePath(version: string) {
     return ctx.resolveAsset(blenderExeRel(version));
@@ -166,7 +174,10 @@ async function probe() {
         return;
     }
     if (hostOk.value) {
-        status.value = "选择托管版本，或使用本机已安装的 Blender";
+        status.value = "选择托管版本，或使用扫描到的本机 Blender";
+    }
+    if (externalOk.value) {
+        void scanExternals(true);
     }
 }
 
@@ -303,32 +314,47 @@ async function reinstallBlender(version: string) {
     await installBlender(version, true);
 }
 
-async function addExternal() {
-    if (!externalOk.value || picking.value || starting.value || anyDownloading.value) return;
-    picking.value = true;
-    status.value = "请选择本机 blender.exe…";
-    try {
-        const path = await ctx.pickFile({
-            title: "选择本机 Blender（blender.exe）",
-            filters: [{ name: "Blender", extensions: ["exe"] }],
-        });
-        if (!path) {
-            status.value = "已取消选择";
-            return;
-        }
-        status.value = "正在探测 Blender 版本…";
-        const { version, label } = await probeExternalExe(ctx, path);
-        const id = makeExternalId(path, version);
-        const next = externals.value.filter((e) => e.path.toLowerCase() !== path.toLowerCase());
-        next.push({ id, path, version, label });
-        await saveExternals(ctx, next);
-        externals.value = next;
-        status.value = `已添加本机 ${label}（External，仅启动，不卸载）`;
-    } catch (e) {
-        status.value = `添加失败：${e instanceof Error ? e.message : String(e)}`;
-    } finally {
-        picking.value = false;
+function applyScanStatus(quiet: boolean) {
+    if (quiet && state.pid !== null) return;
+    if (unusedFounds.value.length === 1) {
+        status.value = `找到本机 ${unusedFounds.value[0].label}，点使用即可`;
+    } else if (unusedFounds.value.length > 1) {
+        status.value = `找到 ${unusedFounds.value.length} 个本机 Blender，请选择要使用的`;
+    } else if (foundLocals.value.length > 0) {
+        status.value = "本机安装已在列表中";
+    } else if (scanned.value) {
+        status.value = "未找到本机 Blender，可下载上方托管版";
     }
+}
+
+async function scanExternals(quiet = false) {
+    if (!externalOk.value || scanning.value) return;
+    scanning.value = true;
+    if (!quiet) status.value = "正在扫描本机已安装的 Blender…";
+    try {
+        foundLocals.value = await scanLocalBlenders(ctx);
+        scanned.value = true;
+        applyScanStatus(quiet);
+    } catch (e) {
+        scanned.value = true;
+        if (!quiet || state.pid === null) {
+            status.value = `扫描失败：${e instanceof Error ? e.message : String(e)}`;
+        }
+    } finally {
+        scanning.value = false;
+    }
+}
+
+async function useFound(item: FoundBlender) {
+    if (starting.value || anyDownloading.value || scanning.value) return;
+    const id = makeExternalId(item.path, item.version);
+    const next = externals.value.filter(
+        (e) => e.path.replace(/\//g, "\\").toLowerCase() !== item.path.replace(/\//g, "\\").toLowerCase(),
+    );
+    next.push({ id, path: item.path, version: item.version, label: item.label });
+    await saveExternals(ctx, next);
+    externals.value = next;
+    status.value = `已添加本机 ${item.label}（External，仅启动，不卸载）`;
 }
 
 async function removeExternal(item: ExternalBlender) {
@@ -471,26 +497,52 @@ onBeforeUnmount(() => stopWatch?.());
 
                         <article class="card add-card" v-if="externalOk">
                             <div class="card-head">
-                                <h3 class="card-title">Use Existing…</h3>
+                                <h3 class="card-title">Use Existing Blender</h3>
                             </div>
-                            <p class="card-status">选择本机 blender.exe</p>
-                            <p class="card-hint">注入 bridge，无需装 addon</p>
+                            <p class="card-status">
+                                <template v-if="scanning">正在扫描本机…</template>
+                                <template v-else-if="unusedFounds.length === 1">
+                                    找到 {{ unusedFounds[0].label }}
+                                </template>
+                                <template v-else-if="unusedFounds.length > 1">
+                                    找到 {{ unusedFounds.length }} 个本机安装
+                                </template>
+                                <template v-else-if="foundLocals.length > 0">本机安装已添加</template>
+                                <template v-else-if="scanned">未找到本机安装</template>
+                                <template v-else>将扫描常见安装位置</template>
+                            </p>
+                            <p v-if="!unusedFounds.length" class="card-hint">Program Files / PATH / Steam</p>
+                            <ul v-if="unusedFounds.length" class="found-list">
+                                <li v-for="item in unusedFounds" :key="item.path" class="found-item">
+                                    <div class="found-copy">
+                                        <p class="found-label">{{ item.label }}</p>
+                                        <p class="found-path" :title="item.path">{{ shortPath(item.path, 36) }}</p>
+                                    </div>
+                                    <button
+                                        class="launch-btn"
+                                        :disabled="starting || anyDownloading || state.pid !== null"
+                                        @click="useFound(item)"
+                                    >
+                                        使用
+                                    </button>
+                                </li>
+                            </ul>
                             <div class="card-actions">
                                 <button
-                                    class="launch-btn"
-                                    :disabled="picking || starting || anyDownloading || state.pid !== null"
-                                    @click="addExternal"
+                                    class="ghost-btn"
+                                    :disabled="scanning || starting || anyDownloading"
+                                    @click="scanExternals(false)"
                                 >
-                                    {{ picking ? "选择中…" : "浏览…" }}
+                                    {{ scanning ? "扫描中…" : scanned ? "重新扫描" : "扫描本机" }}
                                 </button>
                             </div>
                         </article>
                         <article class="card disabled" v-else>
                             <div class="card-head">
-                                <h3 class="card-title">Use Existing…</h3>
+                                <h3 class="card-title">Use Existing Blender</h3>
                             </div>
                             <p class="card-status">需要更新 Host</p>
-                            <p class="card-hint">pickFile / runCapture 未就绪</p>
+                            <p class="card-hint">exists / runCapture 未就绪</p>
                         </article>
                     </div>
                 </section>
@@ -518,11 +570,20 @@ onBeforeUnmount(() => stopWatch?.());
 <style scoped>
 .blender-panel {
     position: relative;
+    box-sizing: border-box;
     height: 100%;
-    overflow: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .manager {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -557,6 +618,8 @@ onBeforeUnmount(() => stopWatch?.());
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .section-title {
@@ -569,16 +632,18 @@ onBeforeUnmount(() => stopWatch?.());
 }
 
 .row {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
     gap: 12px;
-    overflow-x: auto;
-    padding-bottom: 4px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .card {
-    flex: 0 0 200px;
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -600,6 +665,10 @@ onBeforeUnmount(() => stopWatch?.());
     opacity: 0.55;
 }
 
+.card.tripo {
+    max-width: 280px;
+}
+
 .card-head {
     display: flex;
     align-items: center;
@@ -609,9 +678,11 @@ onBeforeUnmount(() => stopWatch?.());
 
 .card-title {
     margin: 0;
+    min-width: 0;
     font-size: 0.9375rem;
     font-weight: 600;
     color: #eee;
+    overflow-wrap: anywhere;
 }
 
 .badge {
@@ -658,6 +729,43 @@ onBeforeUnmount(() => stopWatch?.());
     height: 100%;
     background: #e8e8e8;
     transition: width 0.2s linear;
+}
+
+.found-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.found-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.found-copy {
+    min-width: 0;
+    flex: 1;
+}
+
+.found-label,
+.found-path {
+    margin: 0;
+}
+
+.found-label {
+    font-size: 0.8125rem;
+    color: #eee;
+}
+
+.found-path {
+    font-size: 0.7rem;
+    color: #888;
+    word-break: break-all;
 }
 
 .card-actions {

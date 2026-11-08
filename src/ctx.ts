@@ -43,7 +43,7 @@ export function canManageRuntime(ctx: HostCtx): boolean {
 
 export function canUseExternal(ctx: HostCtx): boolean {
     return (
-        typeof ctx.pickFile === "function" &&
+        typeof ctx.exists === "function" &&
         typeof ctx.runCapture === "function" &&
         typeof ctx.readText === "function" &&
         typeof ctx.writeText === "function"
