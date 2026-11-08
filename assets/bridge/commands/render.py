@@ -122,9 +122,21 @@ def _place_ortho_camera(obj, view: str, center=None, span=None):
     return cam
 
 
-def _render_one(obj, view: str, path: str, resolution: int, *, center=None, span=None, label: str | None = None) -> dict[str, Any]:
+SHADING_MODES = ("default", "semantic")
+# semantic 模式改动的 Workbench 着色字段，渲完逐项还原
+_SEMANTIC_SHADING = {
+    "light": "STUDIO",
+    "color_type": "MATERIAL",
+    "show_shadows": False,
+    "show_cavity": False,
+    "show_specular_highlight": False,
+}
+
+
+def _render_one(obj, view: str, path: str, resolution: int, *, center=None, span=None, label: str | None = None, shading: str = "default") -> dict[str, Any]:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     scene = bpy.context.scene
+    display = scene.display.shading
     prev = {
         "engine": scene.render.engine,
         "filepath": scene.render.filepath,
@@ -134,11 +146,18 @@ def _render_one(obj, view: str, path: str, resolution: int, *, center=None, span
         "fmt": scene.render.image_settings.file_format,
         "camera": scene.camera,
     }
+    prev_shading = {key: getattr(display, key) for key in _SEMANTIC_SHADING}
     cam = None
     try:
         cam = _place_ortho_camera(obj, view, center=center, span=span)
         scene.camera = cam
-        scene.render.engine = _pick_engine()
+        if shading == "semantic":
+            # 平光材质色：语义颜色不被灯光、阴影改变深浅
+            scene.render.engine = "BLENDER_WORKBENCH"
+            for key, value in _SEMANTIC_SHADING.items():
+                setattr(display, key, value)
+        else:
+            scene.render.engine = _pick_engine()
         scene.render.resolution_x = resolution
         scene.render.resolution_y = resolution
         scene.render.resolution_percentage = 100
@@ -155,6 +174,8 @@ def _render_one(obj, view: str, path: str, resolution: int, *, center=None, span
         scene.render.resolution_percentage = prev["pct"]
         scene.render.image_settings.file_format = prev["fmt"]
         scene.camera = prev["camera"]
+        for key, value in prev_shading.items():
+            setattr(display, key, value)
         if cam is not None:
             data = cam.data
             bpy.data.objects.remove(cam, do_unlink=True)
@@ -255,6 +276,9 @@ def render_scene_views(params: dict[str, Any]) -> dict[str, Any]:
     resolution = int(params.get("resolution", 512))
     if resolution < 64:
         raise ValueError("resolution 至少 64")
+    shading = str(params.get("shading", "default")).strip().lower()
+    if shading not in SHADING_MODES:
+        raise ValueError(f"未知 shading: {shading}（可选 {', '.join(SHADING_MODES)}）")
     folder = str(params.get("output_dir", "")).strip()
     if not folder:
         folder = tempfile.mkdtemp(prefix="beep-scene-views-")
@@ -273,6 +297,7 @@ def render_scene_views(params: dict[str, Any]) -> dict[str, Any]:
                 center=center,
                 span=span,
                 label="scene",
+                shading=shading,
             ))
         except Exception as e:
             failed.append({"view": view, "path": path, "ok": False, "error": str(e)})
@@ -280,6 +305,7 @@ def render_scene_views(params: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "ok": len(failed) == 0 and len(results) == len(views),
         "name": "scene",
+        "shading": shading,
         "objects": [obj.name for obj in meshes],
         "output_dir": folder,
         "expected": views,

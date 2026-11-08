@@ -43,6 +43,11 @@ export const tools: PluginTool[] = [
         "properties": {},
         "additionalProperties": false
 }),
+    bridgeTool("scene.semantic_inspect", "读取当前场景的 物体 → 语义组 → 材质 → 颜色 映射（含类型、父级、可见性、尺寸），并报告同组颜色不一致、组间颜色难区分、标签缺材质等问题", {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+}),
     bridgeTool("scene.isolate_objects", "临时隔离指定物体，只显示列出的物体，隐藏其他物体。按整个层级隔离用 scene_isolate_hierarchy；已隔离的部件直接编辑，不要再次隔离。完成后调用 scene_restore_visibility", {
         "type": "object",
         "properties": {
@@ -685,6 +690,40 @@ export const tools: PluginTool[] = [
         ],
         "additionalProperties": false
 }),
+    bridgeTool("material.assign_semantic", "按语义分组批量上色：一次调用为所有组建材质、设颜色、赋给物体并记录语义组标签（会替换这些物体原有材质）。同功能部件同组同色，不同组颜色要明显不同。颜色只是语义标签，不表示父子层级", {
+        "type": "object",
+        "properties": {
+            "groups": {
+                "type": "array",
+                "description": "语义组列表；每个物体只能属于一个组",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "group": { "type": "string", "description": "语义组名，按功能命名，如 Legs" },
+                        "color": {
+                            "type": "array",
+                            "description": "[R, G, B] 或 [R, G, B, A]，0~1",
+                            "items": { "type": "number" },
+                            "minItems": 3,
+                            "maxItems": 4
+                        },
+                        "objects": {
+                            "type": "array",
+                            "description": "属于该组的物体名",
+                            "items": { "type": "string" },
+                            "minItems": 1
+                        },
+                        "material": { "type": "string", "description": "材质名，默认 Semantic_<group>" }
+                    },
+                    "required": ["group", "color", "objects"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["groups"],
+        "additionalProperties": false
+}),
     bridgeTool("light.add", "在场景中新建一盏灯（点光/日光/聚光/面光）", {
         "type": "object",
         "properties": {
@@ -862,6 +901,11 @@ export const tools: PluginTool[] = [
                 description: "视图列表，默认 front,right,top",
             },
             resolution: { type: "number", description: "边长像素，默认 512" },
+            shading: {
+                type: "string",
+                description: "default 为原渲染；已用 material_assign_semantic 上色的模型传 semantic（平光材质色，颜色不受灯光影响）",
+                enum: ["default", "semantic"],
+            },
         },
         additionalProperties: false,
     }),

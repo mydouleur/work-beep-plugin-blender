@@ -49,6 +49,13 @@ CORE_ERRORS = [
     "object.parent_same",
     "object.parent_cycle",
     "object.parent_keep_bad",
+    "material.semantic_no_groups",
+    "material.semantic_empty_group",
+    "material.semantic_missing_object",
+    "material.semantic_bad_color",
+    "material.semantic_object_twice",
+    "material.semantic_not_material_holder",
+    "render.shading_bad",
     "mesh.not_found",
     "mesh.not_mesh",
     "mesh.subdivide_bad",
@@ -506,6 +513,172 @@ def main() -> int:
         lambda d: d.get("restored") is False,
     )
 
+    # --- 语义颜色：Color → Logic ---
+    reset()
+    r.call("object.add_cube", {"name": "Plain"})
+    r.pos(
+        "pos.semantic_unannotated",
+        "scene.semantic_inspect",
+        {},
+        lambda d: d.get("annotated") is False and d.get("groups") == [] and d.get("issues") == [],
+    )
+    reset()
+    r.call("object.add_cube", {"name": "Seat", "size": 1, "location": [0, 0, 1]})
+    r.call("object.add_cube", {"name": "Back", "size": 1, "location": [0, 0.5, 2]})
+    for leg, xy in {"Leg_FL": (-0.4, -0.4), "Leg_FR": (0.4, -0.4), "Leg_BL": (-0.4, 0.4), "Leg_BR": (0.4, 0.4)}.items():
+        r.call("object.add_cylinder", {"name": leg, "radius": 0.05, "depth": 1, "location": [xy[0], xy[1], 0.5]})
+    r.call("object.add_empty", {"name": "Chair"})
+    r.call("object.set_parent", {"child": "Seat", "parent": "Chair"})
+
+    chair_groups = [
+        {"group": "Seat", "color": [0.9, 0.15, 0.15], "objects": ["Seat"]},
+        {"group": "Backrest", "color": [0.15, 0.3, 0.9], "objects": ["Back"]},
+        {"group": "Legs", "color": [0.15, 0.8, 0.25], "objects": ["Leg_FL", "Leg_FR", "Leg_BL", "Leg_BR"]},
+    ]
+    r.pos(
+        "pos.assign_semantic",
+        "material.assign_semantic",
+        {"groups": chair_groups},
+        lambda d: d.get("group_count") == 3 and d.get("object_count") == 6,
+    )
+
+    def _inspect():
+        return r.call("scene.semantic_inspect", {})
+
+    def _obj(d, name):
+        return next((o for o in d["objects"] if o["name"] == name), None)
+
+    def _group(d, name):
+        return next((g for g in d["groups"] if g["group"] == name), None)
+
+    def _codes(d):
+        return {i["code"] for i in d["issues"]}
+
+    # A：标签可查询，且带类型/父级
+    r.pos(
+        "pos.semantic_metadata",
+        "scene.semantic_inspect",
+        {},
+        lambda d: (
+            d.get("annotated") is True
+            and _obj(d, "Leg_FL")["semantic_group"] == "Legs"
+            and _obj(d, "Seat")["parent"] == "Chair"
+            and _obj(d, "Seat")["type"] == "MESH"
+            and _obj(d, "Chair")["semantic_group"] is None
+            and bpy.data.objects["Back"].get("beep_semantic_group") == "Backrest"
+        ),
+    )
+    # B：不同组材质与颜色正确
+    r.pos(
+        "pos.semantic_colors",
+        "scene.semantic_inspect",
+        {},
+        lambda d: (
+            _obj(d, "Seat")["material"] == "Semantic_Seat"
+            and _obj(d, "Back")["material"] == "Semantic_Backrest"
+            and abs(_obj(d, "Seat")["color"][0] - 0.9) < 1e-3
+            and abs(_obj(d, "Back")["color"][2] - 0.9) < 1e-3
+            and len(bpy.data.objects["Seat"].data.materials) == 1
+        ),
+    )
+    # C：同组一致，没有任何问题
+    r.pos(
+        "pos.semantic_same_group",
+        "scene.semantic_inspect",
+        {},
+        lambda d: (
+            sorted(_group(d, "Legs")["objects"]) == ["Leg_BL", "Leg_BR", "Leg_FL", "Leg_FR"]
+            and len(_group(d, "Legs")["colors"]) == 1
+            and _group(d, "Legs")["materials"] == ["Semantic_Legs"]
+            and d["issues"] == []
+        ),
+    )
+
+    # D：故意把一条腿换成别的颜色 → 同组颜色不一致 + 材质被改
+    r.call("material.create", {"name": "Rogue"})
+    r.call("material.set_base_color", {"name": "Rogue", "color": [0.95, 0.9, 0.1]})
+    r.call("material.assign", {"object": "Leg_BR", "material": "Rogue"})
+    r.pos(
+        "pos.semantic_detect_inconsistent",
+        "scene.semantic_inspect",
+        {},
+        lambda d: (
+            "group_color_inconsistent" in _codes(d)
+            and "label_material_changed" in _codes(d)
+            and any(i["severity"] == "critical" and "Leg_BR" in i["objects"] for i in d["issues"])
+        ),
+    )
+    # 重新批量上色可修复
+    r.call("material.assign_semantic", {"groups": chair_groups})
+    r.pos("pos.semantic_fixed", "scene.semantic_inspect", {}, lambda d: d["issues"] == [])
+
+    # D：两组颜色几乎相同 → 难以区分
+    r.call("material.assign_semantic", {"groups": [
+        {"group": "Seat", "color": [0.9, 0.15, 0.15], "objects": ["Seat"]},
+        {"group": "Backrest", "color": [0.88, 0.17, 0.15], "objects": ["Back"]},
+    ]})
+    r.pos("pos.semantic_detect_close_colors", "scene.semantic_inspect", {}, lambda d: "groups_share_color" in _codes(d))
+    r.call("material.assign_semantic", {"groups": chair_groups})
+
+    # 改名：标签跟随物体
+    bpy.data.objects["Leg_FL"].name = "Leg_FrontLeft"
+    r.pos(
+        "pos.semantic_rename",
+        "scene.semantic_inspect",
+        {},
+        lambda d: _obj(d, "Leg_FrontLeft")["semantic_group"] == "Legs" and _obj(d, "Leg_FL") is None,
+    )
+    # 删除：映射反映当前场景，Legs 只剩 3 个（E 的场景层面：同色不代表数量够）
+    r.call("object.delete", {"name": "Leg_BL"})
+    r.pos("pos.semantic_delete", "scene.semantic_inspect", {}, lambda d: len(_group(d, "Legs")["objects"]) == 3)
+    # 材质被删 → 标签缺材质
+    bpy.data.materials.remove(bpy.data.materials["Semantic_Backrest"])
+    r.pos(
+        "pos.semantic_missing_material",
+        "scene.semantic_inspect",
+        {},
+        lambda d: "label_missing_material" in _codes(d) and _obj(d, "Back")["material"] is None,
+    )
+    # 无标签网格 → 警告
+    r.call("object.add_cube", {"name": "Extra", "size": 0.2, "location": [3, 0, 0]})
+    r.pos(
+        "pos.semantic_unlabeled",
+        "scene.semantic_inspect",
+        {},
+        lambda d: any(i["code"] == "unlabeled_meshes" and i["objects"] == ["Extra"] for i in d["issues"]),
+    )
+
+    # 语义渲染：Workbench 平光，渲完还原引擎与着色设置
+    if SKIP_GPU:
+        print("  SKIP  语义渲染（CI 无 GPU）")
+    else:
+        scene = bpy.context.scene
+        engine_before = scene.render.engine
+        shading_before = (scene.display.shading.light, scene.display.shading.color_type, scene.display.shading.show_shadows)
+        with tempfile.TemporaryDirectory(prefix="beep-ci-semantic-") as folder:
+            r.pos(
+                "pos.render_scene_views_semantic",
+                "render.scene_views",
+                {"output_dir": folder, "resolution": 128, "shading": "semantic"},
+                lambda d: d.get("ok") is True and d.get("shading") == "semantic" and len(d.get("views", [])) == 3,
+            )
+            r.pos(
+                "pos.render_scene_views_default",
+                "render.scene_views",
+                {"output_dir": folder, "resolution": 128},
+                lambda d: d.get("ok") is True and d.get("shading") == "default",
+            )
+        r.pos(
+            "pos.render_settings_restored",
+            "scene.list_objects",
+            {},
+            lambda _d: (
+                scene.render.engine == engine_before
+                and (scene.display.shading.light, scene.display.shading.color_type, scene.display.shading.show_shadows) == shading_before
+            ),
+        )
+    # --- end of 语义颜色 ---
+
     # --- 反向：核心错误场景 ---
     print("\n[反向]")
     reset()
@@ -547,6 +720,23 @@ def main() -> int:
     r.neg("neg.scale_missing", "object.scale_missing", "object.scale", {"name": "Cube"}, "scale")
     r.neg("neg.scale_le_0", "object.scale_le_0", "object.scale", {"name": "Cube", "scale": [1, 0, 1]}, "greater than zero")
     r.neg("neg.dup_no_name", "object.duplicate_no_name", "object.duplicate", {}, "name")
+    r.neg("neg.semantic_no_groups", "material.semantic_no_groups", "material.assign_semantic", {"groups": []}, "non-empty")
+    r.neg("neg.semantic_empty_group", "material.semantic_empty_group", "material.assign_semantic", {"groups": [{"group": " ", "color": [1, 0, 0], "objects": ["Cube"]}]}, "cannot be empty")
+    r.neg("neg.semantic_missing_obj", "material.semantic_missing_object", "material.assign_semantic", {"groups": [{"group": "A", "color": [1, 0, 0], "objects": ["Ghost"]}]}, "not found")
+    r.neg("neg.semantic_bad_color", "material.semantic_bad_color", "material.assign_semantic", {"groups": [{"group": "A", "color": [2, 0, 0], "objects": ["Cube"]}]}, "between 0 and 1")
+    r.neg("neg.semantic_two_groups", "material.semantic_object_twice", "material.assign_semantic", {"groups": [
+        {"group": "A", "color": [1, 0, 0], "objects": ["Cube"]},
+        {"group": "B", "color": [0, 0, 1], "objects": ["Cube"]},
+    ]}, "listed in both")
+    r.neg("neg.semantic_no_material_slot", "material.semantic_not_material_holder", "material.assign_semantic", {"groups": [{"group": "A", "color": [1, 0, 0], "objects": ["Shot"]}]}, "cannot hold materials")
+    # 校验失败时不能改动场景：Cube 不应带上语义标签
+    r.pos(
+        "pos.semantic_atomic",
+        "scene.semantic_inspect",
+        {},
+        lambda d: next(o for o in d["objects"] if o["name"] == "Cube")["semantic_group"] is None,
+    )
+    r.neg("neg.render_shading_bad", "render.shading_bad", "render.scene_views", {"shading": "toon"}, "未知 shading")
     r.neg("neg.empty_no_name", "object.empty_name_empty", "object.add_empty", {"name": "  "}, "cannot be empty")
     r.neg("neg.empty_exists", "object.empty_exists", "object.add_empty", {"name": "Cube"}, "already exists")
     r.neg("neg.empty_location_bad", "object.empty_location_bad", "object.add_empty", {"name": "G", "location": [1]}, "exactly three")
